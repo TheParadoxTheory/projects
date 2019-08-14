@@ -1,7 +1,7 @@
 FROM gitpod/workspace-full
 
-RUN apt-get update && apt-get install -y \
+USER root
 
-USER gitpod
+RUN apt-get update && apt-get install -y \
 
 USER root
