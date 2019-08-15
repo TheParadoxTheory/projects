@@ -2,4 +2,4 @@ FROM gitpod/workspace-full
 
 USER root
 
-RUN mkdir MakingSure \
+RUN apt-get update && app-get upgrade \
