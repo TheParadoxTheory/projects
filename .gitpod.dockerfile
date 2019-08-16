@@ -1,58 +1,52 @@
-FROM ubuntu:trusty
-MAINTAINER DIREKTSPEED LTD
+# Build with:
+# 	docker build -t cswl/xampp .
 
-ENV DEBIAN_FRONTEND noninteractive
-ENV PHP_UPLOAD_MAX_FILESIZE 10M
-ENV PHP_POST_MAX_SIZE 10M
-ENV APACHE_CONFDIR /etc/apache2
-ENV APACHE_ENVVARS $APACHE_CONFDIR/envvars
-# and then a few more from $APACHE_CONFDIR/envvars itself
-ENV APACHE_RUN_USER www-data
-ENV APACHE_RUN_GROUP www-data
-ENV APACHE_RUN_DIR /var/run/apache2
-ENV APACHE_PID_FILE $APACHE_RUN_DIR/apache2.pid
-ENV APACHE_LOCK_DIR /var/lock/apache2
-ENV APACHE_LOG_DIR /var/log/apache2
-ENV LANG C
+FROM ubuntu:18.04
 
+ENV TERM=xterm
 
+# Install curl and net-stats for XAMPP 
+RUN apt-get update && \
+ apt install -yq curl net-tools psmisc
 
-RUN apt-get update 
-RUN apt-get -y install supervisor git apache2 libapache2-mod-php5 mysql-server php5-mysql pwgen php-apc php5-mcrypt
-RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
+# Download the installer (7.2.12)
+RUN XAMPP_DL_LINK=' \
+	https://downloadsapachefriends.global.ssl.fastly.net/7.2.12/xampp-linux-x64-7.2.12-0-installer.run?from_af=true \
+	' \ 
+	&& curl -L -o xampp-linux-installer.run $XAMPP_DL_LINK
 
-RUN rm -rf /var/lib/mysql/*
-RUN a2enmod rewrite
-RUN apt-get install -y phpmyadmin
-RUN ln -s /etc/phpmyadmin/apache.conf /etc/apache2/conf-available/phpmyadmin.conf
-RUN a2enconf phpmyadmin
+# Run the installer in Unattended mode
+# Currently there is a bug which doesnt show progress
+RUN chmod 755 xampp-linux-installer.run
+RUN ./xampp-linux-installer.run --mode unattended --unattendedmodeui  minimal 
 
-# Configure /app folder with sample app
-# RUN git clone https://github.com/fermayo/hello-world-lamp.git /app
-# RUN mkdir -p /app && rm -fr /var/www/html && ln -s /app /var/www/html
+# Delete the installer file after install
+RUN rm ./xampp-linux-installer.run
 
-ADD start-apache2.sh /start-apache2.sh
-ADD start-mysqld.sh /start-mysqld.sh
-ADD run.sh /run.sh
-ADD my.cnf /etc/mysql/conf.d/my.cnf
-ADD supervisord-apache2.conf /etc/supervisor/conf.d/supervisord-apache2.conf
-ADD supervisord-mysqld.conf /etc/supervisor/conf.d/supervisord-mysqld.conf
-ADD apache_default /etc/apache2/sites-available/000-default.conf
-ADD create_mysql_admin_user.sh /create_mysql_admin_user.sh
+# Enable XAMPP web interface(remove security checks)
+RUN /opt/lampp/bin/perl -pi -e s'/Require local/Require all granted/g' /opt/lampp/etc/extra/httpd-xampp.conf
 
-RUN chmod 755 /*.sh
+# Enable includes of several configuration files
+RUN mkdir /opt/lampp/apache2/conf.d && \
+echo "IncludeOptional /opt/lampp/apache2/conf.d/*.conf" >> /opt/lampp/etc/httpd.conf
 
-# ...
-RUN mkdir -p $APACHE_RUN_DIR $APACHE_LOCK_DIR $APACHE_LOG_DIR
+# Create a /www folder and a symbolic link to it in /opt/lampp/htdocs. 
+# It'll be accessible via http://localhost:[port]/www/
+# This is convenient because it doesn't interfere with xampp, phpmyadmin or other tools in /opt/lampp/htdocs
+RUN mkdir /www
+RUN ln -s /www /opt/lampp/htdocs/
 
-# make CustomLog (access log) go to stdout instead of files
-#  and ErrorLog to stderr
-RUN find "$APACHE_CONFDIR" -type f -exec sed -ri ' \
-	s!^(\s*CustomLog)\s+\S+!\1 /proc/self/fd/1!g; \
-	s!^(\s*ErrorLog)\s+\S+!\1 /proc/self/fd/2!g; \
-' '{}' ';'
-# Add volumes for MySQL 
-VOLUME  ["/etc/mysql", "/var/lib/mysql" ]
+# Link to /usr/bin for easier starting
+RUN ln -sf /opt/lampp/lampp /usr/bin/lampp
 
-EXPOSE 80 3306
-CMD ["/run.sh"]
+# Add xampp binaires to .bashrc
+RUN echo "export PATH=\$PATH:/opt/lampp/bin/" >> /root/.bashrc
+RUN echo "export TERM=xterm" >> /root/.bashrc
+
+EXPOSE 80 443 3306
+
+ADD init.sh /usr/local/bin/init.sh
+RUN chmod 777 /usr/local/bin/init.sh
+
+# Start the init script
+ENTRYPOINT ["/usr/local/bin/init.sh"]
